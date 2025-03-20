@@ -1,0 +1,183 @@
+---
+title: "Novice"
+format: html
+editor: visual
+---
+
+## Quarto
+
+### **Load and Inspect the Data in R**
+
+#### **1. Load Required Libraries**
+
+```{r}
+library(readxl)
+library(tidyverse)
+```
+
+#### **2. Read the Excel File**
+
+```{r}
+novice_data <- read_excel("./data/Novice.xlsx")
+```
+
+#### **3. Explore the Data**
+
+```{r}
+# View structure of the dataset
+str(novice_data)
+```
+
+```{r}
+# Get summary statistics
+summary(novice_data)
+```
+
+```{r}
+# View first few rows
+head(novice_data)
+```
+
+```{r}
+# Check for missing values
+colSums(is.na(novice_data))
+```
+
+```{r}
+ggplot(novice_data, aes(x = `Program Type`, y = `Match Length`, fill = `Program Type`)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Distribution of Match Length by Program Type",
+       x = "Program Type",
+       y = "Match Length") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+ggplot(novice_data, aes(x = `Match Length`, fill = `Program Type`)) +
+  geom_density(alpha = 0.5) +
+  theme_minimal() +
+  labs(title = "Density Plot of Match Length by Program Type",
+       x = "Match Length",
+       y = "Density")
+```
+
+```{r}
+ggplot(novice_data, aes(x = `Closure Reason`, fill = `Program Type`)) +
+  geom_bar(position = "dodge") +
+  theme_minimal() +
+  labs(title = "Count of Closure Reasons by Program Type",
+       x = "Closure Reason",
+       y = "Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+ggplot(novice_data, aes(x = `Program Type`, fill = `Program Type`)) +
+  geom_bar(position = "dodge") +
+  theme_minimal() +
+  labs(title = "Count of Program Type",
+       x = "Program Type",
+       y = "Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+novice_data_yr <- novice_data |>
+  mutate(Activation_Year = year(`Match Activation Date`))
+```
+
+```{r}
+ggplot(novice_data_yr, aes(x = Activation_Year, y = `Match Length`)) +
+  geom_boxplot(aes(group = Activation_Year), fill = "lightblue", alpha = 0.6) +
+  theme_minimal() +
+  labs(title = "Match Length Distribution Over Time",
+       x = "Year",
+       y = "Match Length")
+
+```
+
+```{r}
+ggplot(novice_data_yr, aes(x = Activation_Year, fill = `Closure Reason`)) +
+  geom_bar(position = "dodge") +
+  theme_minimal() +
+  labs(title = "Closure Reasons Over Time",
+       x = "Year",
+       y = "Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+ggplot(novice_data_yr, aes(x = `Little Age at Match`, y = `Match Length`, fill = `Little Gender`)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Match Length by Little's Age",
+       x = "Little Age",
+       y = "Match Length")
+
+```
+
+```{r}
+ggplot(novice_data_yr, aes(x = `Little Participant: Race/Ethnicity`, fill = `Closure Reason`)) +
+  geom_bar(position = "fill") +  
+  theme_minimal() +
+  labs(title = "Closure Reason by Little's Race",
+       x = "Little Race/Ethnicity",
+       y = "Proportion") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+novice_data_yr <- novice_data_yr %>%
+  mutate(Same_Gender = ifelse(`Big Gender` == `Little Gender`, "Same Gender", "Different Gender"))
+
+ggplot(novice_data_yr, aes(x = Same_Gender, y = `Match Length`, fill = Same_Gender)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Match Length by Gender Alignment",
+       x = "Gender Match",
+       y = "Match Length")
+```
+
+```{r}
+ggplot(novice_data_yr, aes(x = `Shared Interests Score`, y = `Match Length`)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", color = "red") +
+  theme_minimal() +
+  labs(title = "Effect of Shared Interests on Match Length",
+       x = "Shared Interests Score",
+       y = "Match Length")
+
+```
+
+```{r}
+novice_data_yr <- novice_data_yr %>%
+  mutate(Successful_Match = case_when(
+    `Match Status` == "Active" ~ "Successful",
+    `Closure Reason` %in% c("Aged Out", "Successful Match Closure") ~ "Successful",
+    TRUE ~ "Unsuccessful"
+  ))
+
+```
+
+```{r}
+ggplot(novice_data, aes(x = Successful_Match, y = `Match Length`, fill = Successful_Match)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Match Length in Successful vs. Unsuccessful Matches",
+       x = "Match Outcome",
+       y = "Match Length")
+
+```
+
+```{r}
+ggplot(novice_data, aes(x = `Little Age at Match`, fill = Successful_Match)) +
+  geom_histogram(position = "dodge", bins = 20) +
+  theme_minimal() +
+  labs(title = "Little's Age at Match vs. Success",
+       x = "Little's Age",
+       y = "Count")
+
+```

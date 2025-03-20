@@ -1,0 +1,128 @@
+---
+title: "More_Plots"
+format: html
+editor: visual
+---
+
+## Quarto
+
+```{r}
+library(readxl)
+library(tidyverse)
+```
+
+```{r}
+novice_data <- read_excel("./data/Novice.xlsx")
+```
+
+```{r}
+novice_data_yr <- novice_data_yr %>%
+  mutate(
+    `Match Activation Date` = as.Date(`Match Activation Date`, format = "%m/%d/%Y"),
+    `Match Closure Meeting Date` = as.Date(`Match Closure Meeting Date`, format = "%m/%d/%Y"),
+    Activation_Year = as.numeric(Activation_Year),
+    Same_Gender = as.factor(Same_Gender),
+    `Big Gender` = as.factor(`Big Gender`),
+    `Little Gender` = as.factor(`Little Gender`),
+    `Closure Reason` = as.factor(`Closure Reason`)
+  )
+```
+
+```{r}
+# Distribution of match length over time
+ggplot(novice_data_yr, aes(x = Activation_Year, y = `Match Length`)) +
+  geom_boxplot() +
+  labs(title = "Match Length Distribution Over Time", x = "Activation Year", y = "Match Length (days)") +
+  theme_minimal()
+```
+
+```{r}
+# Influence of demographic factors
+ggplot(novice_data_yr, aes(x = `Big Gender`, y = `Match Length`, fill = `Big Gender`)) +
+  geom_boxplot() +
+  labs(title = "Match Length by Big's Gender", x = "Big's Gender", y = "Match Length (days)") +
+  theme_minimal()
+```
+
+```{r}
+# Impact of Same_Gender pairing
+ggplot(novice_data_yr, aes(x = Same_Gender, y = `Match Length`, fill = Same_Gender)) +
+  geom_boxplot() +
+  labs(title = "Impact of Same-Gender Pairing on Match Length", x = "Same Gender", y = "Match Length (days)") +
+  theme_minimal()
+```
+
+```{r}
+# Closure reason distribution
+ggplot(novice_data_yr, aes(x = `Closure Reason`)) +
+  geom_bar() +
+  coord_flip() +
+  labs(title = "Distribution of Match Closure Reasons", x = "Closure Reason", y = "Count") +
+  theme_minimal()
+```
+
+```{r}
+# Investigate shared interests
+interest_cols <- c("Big.Contact..Interest.Finder...Hobbies", "Little.Contact..Interest.Finder...Hobbies")
+novice_data_yr$Shared_Interest <- rowSums(novice_data_yr[interest_cols] == "Yes", na.rm = TRUE) > 0
+
+ggplot(novice_data_yr, aes(x = Shared_Interest, y = Match.Length, fill = Shared_Interest)) +
+  geom_boxplot() +
+  labs(title = "Impact of Shared Interests on Match Length", x = "Shared Interest", y = "Match Length (days)") +
+  theme_minimal()
+```
+
+```{r}
+# Statistical test: Does same-gender matching influence match length?
+t.test(Match.Length ~ Same_Gender, data = novice_data)
+```
+
+```{r}
+ggplot(novice_data_yr, aes(x = `Little Gender`, y = `Match Length`, fill = `Little Gender`)) +
+  geom_boxplot() +
+  labs(title = "Match Length by Little's Gender", x = "Little Gender", y = "Match Length") +
+  theme_minimal()
+```
+
+```{r}
+ggplot(novice_data_yr, aes(x = fct_lump(`Big Race/Ethnicity`, 5), y = `Match Length`, fill = `Big Race/Ethnicity`)) +
+  geom_boxplot() +
+  labs(title = "Match Length by Big's Race/Ethnicity", x = "Big Race/Ethnicity", y = "Match Length") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+# 3. Influence of demographic and interest alignment on response variable distributions
+ggplot(novice_data_yr, aes(x = `Same_Gender`, y = `Match Length`, fill = `Same_Gender`)) +
+  geom_boxplot() +
+  labs(title = "Match Length by Same Gender Alignment", x = "Same Gender", y = "Match Length") +
+  theme_minimal()
+```
+
+```{r}
+# 4. Identifying factors for successful or unsuccessful matches
+novice_data_yr <- novice_data_yr %>%
+  mutate(Successful_Match = case_when(
+    `Closure Reason` %in% c("Successful Match Closure", "Little Aged Out") ~ "Successful",
+    `Match Length` > quantile(`Match Length`, 0.75, na.rm = TRUE) ~ "Successful",
+    TRUE ~ "Unsuccessful"
+  ))
+```
+
+```{r}
+ggplot(novice_data_yr, aes(x = `Successful_Match`, y = `Match Length`, fill = `Successful_Match`)) +
+  geom_boxplot() +
+  labs(title = "Match Length by Success Classification", x = "Success Category", y = "Match Length") +
+  theme_minimal()
+```
+
+```{r}
+novice_data_yr %>%
+  count(`Closure Reason`, `Successful_Match`) %>%
+  ggplot(aes(x = fct_reorder(`Closure Reason`, n), y = n, fill = `Successful_Match`)) +
+  geom_col(position = "dodge") +
+  coord_flip() +
+  labs(title = "Closure Reasons for Successful vs. Unsuccessful Matches", x = "Closure Reason", y = "Count") +
+  theme_minimal()
+```
