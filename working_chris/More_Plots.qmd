@@ -12,7 +12,7 @@ library(tidyverse)
 ```
 
 ```{r}
-novice_data <- read_excel("./data/Novice.xlsx")
+novice_data <- read_excel("../data/Novice.xlsx")
 ```
 
 ```{r}

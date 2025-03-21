@@ -18,7 +18,7 @@ library(tidyverse)
 #### **2. Read the Excel File**
 
 ```{r}
-novice_data <- read_excel("./data/Novice.xlsx")
+novice_data <- read_excel("../data/Novice.xlsx")
 ```
 
 #### **3. Explore the Data**
@@ -109,16 +109,6 @@ ggplot(novice_data_yr, aes(x = Activation_Year, fill = `Closure Reason`)) +
 ```
 
 ```{r}
-ggplot(novice_data_yr, aes(x = `Little Age at Match`, y = `Match Length`, fill = `Little Gender`)) +
-  geom_boxplot() +
-  theme_minimal() +
-  labs(title = "Match Length by Little's Age",
-       x = "Little Age",
-       y = "Match Length")
-
-```
-
-```{r}
 ggplot(novice_data_yr, aes(x = `Little Participant: Race/Ethnicity`, fill = `Closure Reason`)) +
   geom_bar(position = "fill") +  
   theme_minimal() +
@@ -142,20 +132,9 @@ ggplot(novice_data_yr, aes(x = Same_Gender, y = `Match Length`, fill = Same_Gend
 ```
 
 ```{r}
-ggplot(novice_data_yr, aes(x = `Shared Interests Score`, y = `Match Length`)) +
-  geom_point(alpha = 0.5) +
-  geom_smooth(method = "lm", color = "red") +
-  theme_minimal() +
-  labs(title = "Effect of Shared Interests on Match Length",
-       x = "Shared Interests Score",
-       y = "Match Length")
-
-```
-
-```{r}
 novice_data_yr <- novice_data_yr %>%
   mutate(Successful_Match = case_when(
-    `Match Status` == "Active" ~ "Successful",
+    `Stage` == "Active" ~ "Successful",
     `Closure Reason` %in% c("Aged Out", "Successful Match Closure") ~ "Successful",
     TRUE ~ "Unsuccessful"
   ))
@@ -163,21 +142,11 @@ novice_data_yr <- novice_data_yr %>%
 ```
 
 ```{r}
-ggplot(novice_data, aes(x = Successful_Match, y = `Match Length`, fill = Successful_Match)) +
+ggplot(novice_data_yr, aes(x = Successful_Match, y = `Match Length`, fill = Successful_Match)) +
   geom_boxplot() +
   theme_minimal() +
   labs(title = "Match Length in Successful vs. Unsuccessful Matches",
        x = "Match Outcome",
        y = "Match Length")
-
-```
-
-```{r}
-ggplot(novice_data, aes(x = `Little Age at Match`, fill = Successful_Match)) +
-  geom_histogram(position = "dodge", bins = 20) +
-  theme_minimal() +
-  labs(title = "Little's Age at Match vs. Success",
-       x = "Little's Age",
-       y = "Count")
 
 ```
