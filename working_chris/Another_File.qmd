@@ -1,0 +1,424 @@
+---
+title: "Another_File"
+format: html
+editor: visual
+---
+
+# MinneMUDAC 2025: Big Brother Big Sister Twin Cities
+
+MinneMUDAC 2025 has teamed up with Big Brother Big Sisters Twin Cities for this year’s challenge.  Big Brother Big Sisters Twin Cities the largest and oldest youth award-winning mentoring organization in the greater Twin Cities.  Each year, we match up youth (Littles age 8-13) and their families with caring adults (Bigs) who volunteer as mentors.  Through a variety of community-based, school-based, and workplace-based mentoring programs, and together with our community, we want every youth to have a mentor, be affirmed in who they are, and explore who they want to be.
+
+## Novice Division
+
+#### Responsive Variables of Interest:
+
+-   `Match Length`
+
+-   `Closure Reason`
+
+#### Libraries:
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(naniar)
+library(FSA)
+```
+
+#### Loading in the data:
+
+```{r}
+novice_data <- read_excel("../data/Novice.xlsx")
+```
+
+#### Quick Overview of The Data:
+
+```{r}
+glimpse(novice_data)
+```
+
+```{r}
+summary(novice_data)
+```
+
+```{r}
+head(novice_data)
+```
+
+#### Initial Findings:
+
+**Rows:** 3,275
+
+**Columns:** 66
+
+**Key columns of interest:**
+
+-   `Stage` – Whether the match is `Closed` or `Active`.
+
+-   `Closure Reason` – Reason why the match ended.
+
+-   `Match Activation Date` & `Match Closure Meeting Date` – Used to calculate match duration.
+
+-   `Match Length` – Length of the match (in months).
+
+-   `Big` and `Little` demographics and interest fields – Useful for understanding match characteristics.
+
+    -   `Big Approved Date`, `Big Birthdate`, `Big Acceptance Date`, `Little Birthdate`, `Little Acceptance Date` – Useful for deriving age at match and match timelines.
+
+    -   `Big Gender`, `Big Race/Ethnicity`, `Big Level of Education`, `Big County`, `Little Gender`, `Little Participant: Race/Ethnicity`, `Program` and `Program Type` – May influence match outcomes.
+
+    -   `Big Age`, `Big Days Interview to Acceptance`, `Big Days Interview to Match`, `Match Length` – Numeric target for regression.
+
+    -   `Big Re-Enroll` – Indicator variable.
+
+**Missing Data:**
+
+-   `Big Employer/School Census Block Group` and `Big Home Census Block Group` have significant missing values.
+
+### Understand and analyze the response variable distributions:
+
+#### Analyzing `Match Length` Distribution:
+
+**From `summary()` above:**
+
+-   `Match Length` ranges from 0 to 97.2 months.
+
+-   Median: \~16.8 months
+
+-   Mean: \~23.38 months (longer tail suggesting possible skew)
+
+-   NA values: None
+
+**Histogram**
+
+```{r}
+ggplot(novice_data, aes(x = `Match Length`)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white") +
+  labs(title = "Distribution of Match Length",
+       x = "Match Length (months)",
+       y = "Frequency")
+```
+
+**Density Plot**
+
+```{r}
+ggplot(novice_data, aes(x = `Match Length`)) +
+  geom_density(fill = "lightblue", alpha = 0.7) +
+  labs(title = "Density of Match Length",
+       x = "Match Length (months)",
+       y = "Density")
+```
+
+#### Analyzing `Closure Reason` Distribution:
+
+**From `summary()` above:**
+
+-   `Closure Reason` is a categorical variable.
+
+-   Unique values: 34
+
+-   NA values: 786
+
+**Bar Plot**
+
+```{r}
+novice_data |>
+  filter(!is.na(`Closure Reason`)) %>%
+  count(`Closure Reason`) %>%
+  ggplot(aes(x = reorder(`Closure Reason`, -n), y = n, fill = `Closure Reason`)) +
+  geom_bar(stat = "identity") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(title = "Distribution of Closure Reasons",
+       x = "Closure Reason",
+       y = "Count") +
+  theme(legend.position = "none")
+```
+
+Interesting how high the COVID closure reason is.
+
+#### Double Checking `Match Length` and Missing Values:
+
+Using `Match Activation Date` and `Match Closure Meeting Date` to calculate match duration.
+
+```{r}
+novice_data <- novice_data %>%
+  mutate(Match_Length_Calculated = as.numeric(difftime(`Match Closure Meeting Date`, `Match Activation Date`, units = "days")) / 30.4)
+```
+
+**Plotting to Compare:**
+
+```{r}
+ggplot(novice_data, aes(x = `Match Length`, y = Match_Length_Calculated)) +
+  geom_point(alpha = 0.5, color = "steelblue") +
+  labs(title = "Comparison: Provided vs Calculated Match Length",
+       x = "Match Length (Provided)",
+       y = "Match Length (Calculated)")
+```
+
+**Checking Missing Values:**
+
+```{r}
+sum(is.na(novice_data$`Match Length`)) 
+```
+
+```{r}
+sum(is.na(novice_data$`Closure Reason`)) 
+```
+
+Using the `naniar` package to visualize missing values:
+
+```{r}
+vis_miss(novice_data, warn_large_data = FALSE)
+```
+
+Many columns contain plenty of missing values, enough that the data set as a whole is 55% missing.
+
+### How do the response variable distributions vary across Program Type? 
+
+#### `Match Length` Distribution by `Program Type`
+
+**Box Plot for Match Length by Program Type**
+
+```{r}
+ggplot(novice_data, aes(x = `Program Type`, y = `Match Length`, fill = `Program Type`)) +
+  geom_boxplot(outlier.color = "red", outlier.shape = 1, notch = TRUE) +
+  labs(title = "Match Length Distribution by Program Type",
+       x = "Program Type",
+       y = "Match Length (months)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme(legend.position = "none")
+```
+
+**Violin Plot for Detailed Shape**
+
+```{r}
+ggplot(novice_data, aes(x = `Program Type`, y = `Match Length`, fill = `Program Type`)) +
+  geom_violin(trim = FALSE, alpha = 0.6) +
+  labs(title = "Density of Match Length by Program Type",
+       x = "Program Type",
+       y = "Match Length (months)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme(legend.position = "none")
+```
+
+#### `Closure Reason` Distribution by `Program Type`
+
+**Stacked Bar Plot for Closure Reason**
+
+```{r}
+novice_data |>
+  filter(!is.na(`Closure Reason`)) |>
+  count(`Program Type`, `Closure Reason`) |>
+  ggplot(aes(x = `Program Type`, y = n, fill = `Closure Reason`)) +
+  geom_bar(stat = "identity", position = "fill") +
+  labs(title = "Closure Reason Distribution by Program Type",
+       x = "Program Type",
+       y = "Proportion",
+       fill = "Closure Reason") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+**Faceted Bar Plot for Closure Reason Counts**
+
+```{r}
+novice_data |>
+  filter(!is.na(`Closure Reason`)) |>
+  count(`Program Type`, `Closure Reason`) |>
+  ggplot(aes(x = `Closure Reason`, y = n, fill = `Closure Reason`)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~`Program Type`, scales = "free_y") +
+  labs(title = "Count of Closure Reasons by Program Type",
+       x = "Closure Reason",
+       y = "Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme(legend.position = "none")
+```
+
+#### Statistical Test for `Match Length` Variation
+
+**ANOVA or Kruskal-Wallis Test**
+
+-   ANOVA: If assumptions of normality and homogeneity of variance hold.
+
+```{r}
+anova_result <- aov(`Match Length` ~ `Program Type`, data = novice_data)
+summary(anova_result)
+```
+
+-   **Exploration:**
+
+    -   **F value**
+
+        -   74.28 — High F-value means the difference between program types are much larger than within group variation.
+
+    -   Pr(\>F)
+
+        -   p-value \< 2e-16 — Very small p-value, meaning the differences between `Program Type` are highly significant.
+
+        -   That means `Match Length` varies significantly by `Program Type`.
+
+-   Kruskal-Wallis: If assumptions are violated (non-parametric alternative).
+
+```{r}
+kruskal_test <- kruskal.test(`Match Length` ~ `Program Type`, data = novice_data)
+kruskal_test
+```
+
+-   **Exploration:**
+
+    -   **Chi-squared value**
+
+        -   182.07 — High value means strong difference in distributions.
+
+    -   **p-value**
+
+        -   p-value \< 2.2e-16 — Extremely small p-value.
+
+            -   This confirms that there are statistically significant differences in `Match Length` between `Program Type` groups.
+
+#### Statistical Test for `Closure Reason` Variation
+
+Determining whether `Closure Reason` distribution varies significantly across `Program Type`.
+
+```{r}
+closure_table <- table(novice_data$`Closure Reason`, novice_data$`Program Type`)
+chisq.test(closure_table)
+```
+
+-   **Exploration:**
+
+    -   **Chi-squared value**
+
+        -   The warning may mean that some expected counts may be too small, high chance for inaccuracies. Could try Fisher's Exact Test.
+
+        -   1265.7 — Very high value means large difference between observed and expected frequencies.
+
+    -   **p-value**
+
+        -   p-value \< 2.2e-16 — Extremely small p-value.
+
+            -   Shows that `Closure Reason` distributions are significantly different across `Program Type`.
+
+#### Post-hoc Test/Analysis
+
+For ANOVA we can run Tukey’s HSD to determine which `Program Types` differ significantly.
+
+```{r}
+# Resolving issue with column names having spaces causing an error.
+colnames(novice_data) <- make.names(colnames(novice_data))
+```
+
+```{r}
+anova_result <- aov(Match.Length ~ Program.Type, data = novice_data)
+tukey_result <- TukeyHSD(anova_result)
+print(tukey_result)
+```
+
+-   **Exploration:**
+
+    -   **Significant Results (p \< 0.05):**
+
+        -   `Site - Community`:
+
+            -   Difference: -12.06
+
+            -   95% CI: \[-14.34, -9.78\]
+
+            -   p-value: **\< 0.001** — Highly significant, meaning that `Site` matches have shorter match lengths than `Community`.
+
+        -   `Site Based Facilitated - Community`:
+
+            -   Difference: -9.59
+
+            -   95% CI: \[-12.67, -6.50\]
+
+            -   p-value: **\< 0.001** — Significant, indicating that `Site Based Facilitated` matches have shorter match lengths than `Community`.
+
+    <!-- -->
+
+    -   **Non-Significant Results:**
+
+        -   `Site Based Plus - Community`
+
+            -   p = 0.92 (no significant difference)
+
+        -   `Site Based Facilitated - Site`
+
+            -   p = 0.28 (no significant difference)
+
+        -   `Site Based Plus - Site`
+
+            -   p = 0.31 (no significant difference)
+
+        -   `Site Based Plus - Site Based Facilitated`
+
+            -   p = 0.43 (no significant difference)
+
+For Kruskal-Wallis we can use Dunn's Test for pairwise comparison.
+
+```{r}
+dunn_test <- dunnTest(`Match Length` ~ `Program Type`, data = novice_data, method = "bonferroni")
+print(dunn_test)
+```
+
+-   **Exploration:**
+
+    -   This test compares the groups to each other to identify how they differ.
+
+    -   **Significant Comparisons:**
+
+        -   `Community - Site`: p \< 0.001 — Highly significant difference.
+
+        -   `Community - Site Based Facilitated`: p \< 0.001 — Significant.
+
+        -   `Site - Site Based Facilitated`: p \< 0.001 — Significant.
+
+    -    **Non-Significant Comparisons:**
+
+        -   `Community - Site Based Plus`: p = 1.00 (no significant difference).
+
+        -   `Site - Site Based Plus`: p = 0.60 (not significant).
+
+        -   `Site Based Facilitated - Site Based Plus`: p = 1.00 (not significant).
+
+    Community and Site matches have significantly different match lengths.
+
+    Community and Site Based Facilitated are also different.
+
+    Site and Site Based Facilitated differ too.
+
+    But, Site Based Plus is not significantly different from other groups.
+
+Trying out Fisher's Exact Test for a more accurate results due to the chi-squared warning.
+
+```{r}
+fisher_test <- fisher.test(closure_table)
+fisher_test
+```
+
+The error above is because the data is too large for the Fisher test to handle the exact calculations. Trying again using simulated p-values.
+
+```{r}
+fisher_test <- fisher.test(closure_table, simulate.p.value = TRUE, B = 10000)
+fisher_test
+```
+
+This shows that there is a significant relationship between the type of program and the reason for closure.
+
+#### Plots to visualize findings:
+
+```{r}
+ggplot(as.data.frame(closure_table), aes(x = Var2, y = Freq, fill = Var1)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Program Type", y = "Count", fill = "Closure Reason") +
+  theme_minimal()
+```
+
+```{r}
+ggplot(novice_data, aes(x = Program.Type, y = Match.Length, fill = Program.Type)) +
+  geom_boxplot() +
+  labs(title = "Match Length Distributions Across Program Types", x = "Program Type", y = "Match Length (months)") +
+  theme_minimal()
+```
+
+### Have the response variable distributions changed over time?
