@@ -422,3 +422,135 @@ ggplot(novice_data, aes(x = Program.Type, y = Match.Length, fill = Program.Type)
 ```
 
 ### Have the response variable distributions changed over time?
+
+#### Analyzing `Match Length` Over Time:
+
+Extracting year from `Match Activation Date` and `Match Closure Meeting Date`, gives us two approaches for `Match Length` over time.
+
+```{r}
+novice_data <- novice_data %>%
+  mutate(Match_Activation_Year = year(as.Date(Match.Activation.Date)),
+         Match_Closure_Year = year(as.Date(Match.Closure.Meeting.Date)))
+```
+
+Group by year and summarize mean match length
+
+```{r}
+match_length_trend_act <- novice_data %>%
+  group_by(Match_Activation_Year) %>%
+  summarise(
+    mean_match_length = mean(Match.Length, na.rm = TRUE),
+    median_match_length = median(Match.Length, na.rm = TRUE),
+    count = n()
+  )
+```
+
+```{r}
+match_length_trend_clo <- novice_data %>%
+  group_by(Match_Closure_Year) %>%
+  summarise(
+    mean_match_length = mean(Match.Length, na.rm = TRUE),
+    median_match_length = median(Match.Length, na.rm = TRUE),
+    count = n()
+  )
+```
+
+Plotting Match Length trend over time
+
+```{r}
+ggplot(match_length_trend_act, aes(x = Match_Activation_Year, y = mean_match_length)) +
+  geom_line(color = "blue", size = 1) +
+  geom_point(color = "red", size = 2) +
+  labs(
+    title = "Average Match Length Over Time (Activation Year)",
+    x = "Year",
+    y = "Average Match Length (months)"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+ggplot(match_length_trend_clo, aes(x = Match_Closure_Year, y = mean_match_length)) +
+  geom_line(color = "blue", size = 1) +
+  geom_point(color = "red", size = 2) +
+  labs(
+    title = "Average Match Length Over Time (Closure Year)",
+    x = "Year",
+    y = "Average Match Length (months)"
+  ) +
+  theme_minimal()
+```
+
+#### Distribution of `Match Length` Across Years
+
+```{r}
+ggplot(novice_data, aes(x = as.factor(Match_Activation_Year), y = Match.Length)) +
+  geom_boxplot(aes(fill = as.factor(Match_Activation_Year))) +
+  labs(
+    title = "Distribution of Match Length by Year (Activation Year)",
+    x = "Year",
+    y = "Match Length (months)",
+    fill = "Year"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+ggplot(novice_data, aes(x = as.factor(Match_Closure_Year), y = Match.Length)) +
+  geom_boxplot(aes(fill = as.factor(Match_Closure_Year))) +
+  labs(
+    title = "Distribution of Match Length by Year (Closure Year)",
+    x = "Year",
+    y = "Match Length (months)",
+    fill = "Year"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+#### Analyzing `Closure Reason` Changes Over Time
+
+`Closure Reason` Trends (Activation Year)
+
+```{r}
+closure_trend_act <- novice_data %>%
+  group_by(Match_Activation_Year, Closure.Reason) %>%
+  summarise(count = n(), .groups = "drop")
+```
+
+`Closure Reason` Trends (Closure Year)
+
+```{r}
+closure_trend_clo <- novice_data %>%
+  group_by(Match_Closure_Year, Closure.Reason) %>%
+  summarise(count = n(), .groups = "drop")
+```
+
+Plots:
+
+```{r}
+ggplot(closure_trend_act, aes(x = Match_Activation_Year, y = count, fill = Closure.Reason)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(
+    title = "Closure Reasons Distribution Over Time (Activation Year)",
+    x = "Year",
+    y = "Count",
+    fill = "Closure Reason"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+ggplot(closure_trend_clo, aes(x = Match_Closure_Year, y = count, fill = Closure.Reason)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(
+    title = "Closure Reasons Distribution Over Time (Closure Year)",
+    x = "Year",
+    y = "Count",
+    fill = "Closure Reason"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
