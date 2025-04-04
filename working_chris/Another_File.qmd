@@ -23,6 +23,8 @@ library(tidyverse)
 library(readxl)
 library(naniar)
 library(FSA)
+library(DescTools)
+library(reshape2)
 ```
 
 #### Loading in the data:
@@ -173,7 +175,7 @@ vis_miss(novice_data, warn_large_data = FALSE)
 
 Many columns contain plenty of missing values, enough that the data set as a whole is 55% missing.
 
-### How do the response variable distributions vary across Program Type? 
+### How do the response variable distributions vary across Program Type?
 
 #### `Match Length` Distribution by `Program Type`
 
@@ -334,8 +336,6 @@ print(tukey_result)
 
             -   p-value: **\< 0.001** — Significant, indicating that `Site Based Facilitated` matches have shorter match lengths than `Community`.
 
-    <!-- -->
-
     -   **Non-Significant Results:**
 
         -   `Site Based Plus - Community`
@@ -373,13 +373,15 @@ print(dunn_test)
 
         -   `Site - Site Based Facilitated`: p \< 0.001 — Significant.
 
-    -    **Non-Significant Comparisons:**
+    -   **Non-Significant Comparisons:**
 
-        -   `Community - Site Based Plus`: p = 1.00 (no significant difference).
+    ```         
+    -   `Community - Site Based Plus`: p = 1.00 (no significant difference).
 
-        -   `Site - Site Based Plus`: p = 0.60 (not significant).
+    -   `Site - Site Based Plus`: p = 0.60 (not significant).
 
-        -   `Site Based Facilitated - Site Based Plus`: p = 1.00 (not significant).
+    -   `Site Based Facilitated - Site Based Plus`: p = 1.00 (not significant).
+    ```
 
     Community and Site matches have significantly different match lengths.
 
@@ -553,4 +555,178 @@ ggplot(closure_trend_clo, aes(x = Match_Closure_Year, y = count, fill = Closure.
   ) +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+***NOTE: At this point I remembered that `Match Closure Meeting Date` has a lot of NAs and shouldn't be considered moving forwards for "Over Time" analysis.***
+
+#### Statistical Analysis of Trends
+
+**Kruskal-Wallis for `Match Length` by Year**
+
+```{r}
+kruskal_test_year <- kruskal.test(Match.Length ~ as.factor(Match_Activation_Year), data = novice_data)
+print(kruskal_test_year)
+```
+
+-   **Exploration:**
+
+    -   **Chi-squared value**
+
+        -   495.73 — High value means strong difference in distributions.
+
+    -   **p-value**
+
+        -   p-value \< 2.2e-16 — Extremely small p-value.
+
+            -   This shows that there is a strong difference in the distribution of `Match Legnth` across different `Match Activation Years`.
+
+**Chi-Square Test for Closure Reason Changes**
+
+```{r}
+closure_table_year <- table(novice_data$Closure.Reason, novice_data$Match_Activation_Year)
+chisq_closure_year <- chisq.test(closure_table_year)
+print(chisq_closure_year)
+```
+
+-   **Exploration:**
+
+    -   **Chi-squared value**
+
+        -   The warning may mean that some expected counts may be too small, high chance for inaccuracies. Could try Fisher's Exact Test.
+
+        -   966.01 — High value means a significant association between `Closure Reason` and `Match Activation Year`.
+
+    -   **p-value**
+
+        -   p-value \< 2.2e-16 — Extremely small p-value.
+
+            -   The `Closure Reason` appears to vary significantly over time.
+
+#### Post-hoc Test/Analysis
+
+**Kruskal-Wallis**
+
+```{r}
+dunn_test_year <- dunnTest(Match.Length ~ as.factor(Match_Activation_Year), data = novice_data, method = "bonferroni")
+dunn_test_year
+```
+
+#### Significant Differences:
+
+-   **2017 vs 2019:**
+
+    -   Z = -4.14, p.adj = 0.00098 **(Significant)**
+
+    -   Match lengths in 2019 were significantly different from 2017.
+
+    **2018 vs 2019:**
+
+    -   Z = -3.60, p.adj = 0.00893 **(Significant)**
+
+    -   Match lengths in 2019 were significantly different from 2018.
+
+    **2017 vs 2021:**
+
+    -   Z = -3.42, p.adj = 0.017 **(Significant)**
+
+    -   Match lengths in 2021 were significantly different from 2017.
+
+**Plot:**
+
+```{r}
+ggplot(novice_data, aes(x = as.factor(Match_Activation_Year), y = Match.Length)) +
+  geom_boxplot(aes(fill = as.factor(Match_Activation_Year))) +
+  theme_minimal() +
+  labs(title = "Distribution of Match Length by Match Activation Year",
+       x = "Match Activation Year", y = "Match Length")
+```
+
+**Chi-square**
+
+```{r warning=FALSE}
+PostHocTest(closure_table_year, method = "bonferroni")
+```
+
+**Plots:**
+
+```{r}
+closure_data_year <- as.data.frame(closure_table_year)
+colnames(closure_data_year) <- c("Closure_Reason", "Year", "Count")
+```
+
+```{r}
+ggplot(closure_data_year, aes(x = as.factor(Year), y = Closure_Reason, fill = Count)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "white", high = "steelblue") +
+  theme_minimal() +
+  labs(title = "Changes in Closure Reasons Over Time",
+       x = "Year", y = "Closure Reason",
+       fill = "Count")
+```
+
+### What influence do the various Big and/or Little demographic variables have on the response variable distributions?
+
+Checking column names
+
+```{r}
+str(novice_data)
+```
+
+#### Big Demographics:
+
+-   `Big.Gender`
+
+-   `Big.Age`
+
+-   `Big.Occupation`
+
+-   `Big.Level.of.Education`
+
+-   `Big.Race.Ethnicity`
+
+-   `Big.Car.Access` (96.43% NA)
+
+-   `Big.Contact..Marital.Status` (59.85% NA)
+
+-   `Big.Contact..Interest.Finder...Sports` (99.18% NA)
+
+-   `Big.Contact..Interest.Finder...Places.To.Go` (99.18% NA)
+
+-   `Big.Contact..Interest.Finder...Hobbies`(99.18% NA)
+
+-   `Big.Contact..Interest.Finder...Entertainment`(99.18% NA)
+
+-   
+
+#### Little Demographics:
+
+-   `Little.Gender`
+
+-   `Little.Participant..Race.Ethnicity`
+
+-   `Little.Birthdate` can be used to find `Little.Age` at activation.
+
+-   `Little.Contact..Language.s..Spoken`
+
+-   `Little.Other.Interests`
+
+#### Checking Missing Values:
+
+```{r}
+na_summary <- colSums(is.na(novice_data)) / nrow(novice_data) * 100
+na_summary[na_summary > 0]
+```
+
+#### Removing the columns with high number of NAs:
+
+Identifiying the columns:
+
+```{r}
+high_na_cols <- names(na_summary[na_summary > 90])
+```
+
+Making a set without the high number of NA columns:
+
+```{r}
+novice_data_clean <- novice_data |> select(-all_of(high_na_cols))
 ```

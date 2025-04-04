@@ -1,0 +1,1110 @@
+---
+title: "Undergrad_Division"
+format: html
+---
+
+# MinneMudac 2025 Undergrad Division
+
+### Initial Work:
+
+**Loading Libraries:**
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(lubridate)
+library(tidytext)
+library(textdata)
+library(sentimentr)
+library(tm)
+library(caret)
+library(pROC)
+library(SnowballC)
+library(xgboost)
+library(randomForest)
+```
+
+**Loading in Datasets:**
+
+```{r warning=FALSE}
+training_file <- "../data/Training.xlsx"
+test_file <- "../data/Test_Truncated.xlsx"
+
+train_data <- read_excel(training_file, sheet = 1)
+test_data <- read_excel(test_file, sheet = 1)
+```
+
+```{r}
+glimpse(training_data)
+```
+
+```{r}
+glimpse(test_data)
+```
+
+**Checking for Missing Values:**
+
+```{r}
+colSums(is.na(training_data))
+```
+
+```{r}
+colSums(is.na(test_data))
+```
+
+**NAs Observations:**
+
+-   **Contact Notes:**
+
+    -   `Match Support Contact Notes` has **1,454 missing values** in `training_data` and **100 missing values** in `test_data`.
+
+    -   This could impact text analysis and sentiment analysis.
+
+    -   We’ll handle missing notes by either:
+
+    ```         
+    -    Imputing with placeholder text (`"No Notes Available"`) or
+
+    -    Dropping matches with missing notes, depending on the approach.
+    ```
+
+-   **Completion Date:**
+
+```         
+-    `Completion Date` has **147 NAs** in `training_data` and **1 NA** in `test_data`.
+
+-    Since `Match Length` is derived from this, NAs here could impact the predictive model. We’ll likely **filter out these rows**.
+```
+
+-   **Big and Little Attributes:**
+
+```         
+-    Several columns like `Big Occupation`, `Big Car Access`, `Little Mailing Address`, etc., have high percentages of missing values (many over 50%).
+
+-    These columns may need to be **dropped** or **imputed** depending on their correlation with the target variable (`Match Length`).
+```
+
+### Droping/Imputing NAs:
+
+**Contact Notes:**
+
+```{r}
+training_data$`Match Support Contact Notes`[is.na(training_data$`Match Support Contact Notes`)] <- "No Notes Available"
+test_data$`Match Support Contact Notes`[is.na(test_data$`Match Support Contact Notes`)] <- "No Notes Available"
+```
+
+**Completion Date:**
+
+```{r}
+training_data <- training_data %>%
+  filter(!is.na(`Completion Date`))
+
+test_data <- test_data %>%
+  filter(!is.na(`Completion Date`))
+```
+
+**Dropping Columns with 50% or more missing values (saving just in case):**
+
+```{r}
+threshold <- 0.5 * nrow(training_data)
+
+training_data <- training_data %>%
+  select_if(~sum(is.na(.)) < threshold)
+
+test_data <- test_data %>%
+  select_if(~sum(is.na(.)) < threshold)
+```
+
+**Making a `Match Length` column:**
+
+```{r}
+training_data <- training_data %>%
+  mutate(match_length = as.numeric(difftime(`Completion Date`, `Match Activation Date`, units = "days")))
+
+test_data <- test_data %>%
+  mutate(match_length = as.numeric(difftime(`Completion Date`, `Match Activation Date`, units = "days")))
+```
+
+**Calculate days between calls:**
+
+```{r}
+training_data <- training_data %>%
+  group_by(`Match ID 18Char`) %>%
+  arrange(`Completion Date`) %>%
+  mutate(days_between_calls = as.numeric(difftime(`Completion Date`, lag(`Completion Date`), units = "days")))
+
+training_data$days_between_calls[is.na(training_data$days_between_calls)] <- 0
+
+test_data <- test_data %>%
+  group_by(`Match ID 18Char`) %>%
+  arrange(`Completion Date`) %>%
+  mutate(days_between_calls = as.numeric(difftime(`Completion Date`, lag(`Completion Date`), units = "days")))
+
+test_data$days_between_calls[is.na(test_data$days_between_calls)] <- 0
+```
+
+### Visualizing Days Between Calls:
+
+```{r}
+ggplot(training_data, aes(x = days_between_calls)) +
+  geom_histogram(bins = 50, fill = "steelblue", color = "white") +
+  theme_minimal() +
+  labs(title = "Distribution of Days Between Calls", x = "Days", y = "Count")
+```
+
+```{r}
+correlation_cadence <- cor(training_data$days_between_calls, training_data$match_length, use = "complete.obs")
+print(paste("Correlation between days between calls and match length:", correlation_cadence))
+```
+
+Correlation: **0.583**, which indicates a **moderate to strong positive correlation**. The correlation is **not extremely high**, other factors likely influence match length
+
+### Analyze Match Support Contact Notes:
+
+```{r}
+training_notes <- training_data %>%
+  unnest_tokens(word, `Match Support Contact Notes`) %>%
+  anti_join(stop_words, by = "word") %>%
+  mutate(word = wordStem(word))
+```
+
+**Term Frequency and TF-IDF:**
+
+```{r}
+word_freq <- training_notes %>%
+  count(word, sort = TRUE)
+```
+
+```{r}
+tf_idf <- training_notes %>%
+  count(`Match ID 18Char`, word, sort = TRUE) %>%
+  bind_tf_idf(word, `Match ID 18Char`, n) %>%
+  arrange(desc(tf_idf))
+
+head(tf_idf, 20)
+```
+
+**Load sentiment lexicon:**
+
+```{r}
+bing_lexicon <- get_sentiments("bing")
+```
+
+**Perform sentiment analysis:**
+
+```{r}
+training_notes <- training_notes %>%
+  distinct(`Match ID 18Char`, word, .keep_all = TRUE)
+```
+
+```{r}
+sentiment_notes <- training_notes %>%
+  inner_join(bing_lexicon, by = "word") %>%  # No more many-to-many issues!
+  count(`Match ID 18Char`, sentiment) %>%
+  spread(sentiment, n, fill = 0)
+```
+
+```{r}
+training_notes <- training_notes %>%
+  count(`Match ID 18Char`, word, name = "word_count")
+```
+
+```{r}
+sentiment_notes <- training_notes %>%
+  inner_join(bing_lexicon, by = "word") %>%
+  count(`Match ID 18Char`, sentiment) %>%
+  spread(sentiment, n, fill = 0)
+```
+
+```{r}
+bing_lexicon %>%
+  group_by(word) %>%
+  filter(n() > 1) %>%
+  arrange(word)
+```
+
+```{r}
+bing_lexicon <- bing_lexicon %>%
+  mutate(word = wordStem(word)) %>%
+  distinct(word, .keep_all = TRUE)
+```
+
+```{r}
+sentiment_notes <- training_notes %>%
+  inner_join(bing_lexicon, by = "word") %>%
+  count(`Match ID 18Char`, sentiment) %>%
+  spread(sentiment, n, fill = 0)
+```
+
+**Joining data into training:**
+
+```{r}
+training_data <- training_data %>%
+  left_join(sentiment_notes, by = `Match ID 18Char`)
+```
+
+```{r}
+colnames(training_data) <- make.names(colnames(training_data), unique = TRUE)
+colnames(test_data) <- make.names(colnames(test_data), unique = TRUE)
+colnames(sentiment_notes) <- make.names(colnames(sentiment_notes), unique = TRUE)
+```
+
+```{r}
+training_data <- training_data %>%
+  left_join(sentiment_notes, by = "Match.ID.18Char")
+```
+
+### Compare Early vs. Late Stage Notes
+
+```{r}
+early_stage_threshold <- quantile(training_data$match_length, 0.25)
+late_stage_threshold <- quantile(training_data$match_length, 0.75)
+```
+
+**Filter for early and late stages:**
+
+```{r}
+training_notes <- training_notes %>%
+  left_join(training_data %>% 
+              select(Match.ID.18Char, Match.Length), 
+            by = c("Match ID 18Char" = "Match.ID.18Char"))
+```
+
+```{r}
+early_stage_notes <- training_notes %>% filter(Match.Length <= early_stage_threshold)
+late_stage_notes <- training_notes %>% filter(Match.Length >= late_stage_threshold)
+```
+
+**Compare word frequencies**
+
+```{r}
+early_word_freq <- early_stage_notes %>% count(word, sort = TRUE)
+late_word_freq <- late_stage_notes %>% count(word, sort = TRUE)
+```
+
+**Plot top terms for comparison:**
+
+```{r}
+early_word_freq %>% top_n(20, n) %>% ggplot(aes(x = reorder(word, n), y = n)) +
+  geom_col(fill = "skyblue") +
+  coord_flip() +
+  labs(title = "Top Words in Early Stage Notes")
+```
+
+```{r}
+late_word_freq %>% top_n(20, n) %>% ggplot(aes(x = reorder(word, n), y = n)) +
+  geom_col(fill = "coral") +
+  coord_flip() +
+  labs(title = "Top Words in Late Stage Notes")
+```
+
+### Predictive Model for Match Length
+
+```{r}
+model_data <- training_data %>%
+  ungroup()%>%
+  select(`Match.Length`, 
+         days_between_calls, 
+         positive, 
+         negative) %>%
+  drop_na()
+```
+
+```{r}
+set.seed(123)
+train_index <- createDataPartition(model_data$Match.Length, p = 0.8, list = FALSE)
+train_set <- model_data[train_index, ]
+test_set <- model_data[-train_index, ]
+```
+
+### Linear Regression:
+
+```{r}
+lm_model <- lm(Match.Length ~ ., data = train_set)
+
+lm_predictions <- predict(lm_model, test_set)
+
+lm_rmse <- sqrt(mean((lm_predictions - test_set$Match.Length)^2))
+print(paste("Linear Regression RMSE:", lm_rmse))
+```
+
+RMSE of `15.89` means that, on average, the predicted **Match Length** is off by about **15.89 days** from the actual length.
+
+### Random Forest:
+
+```{r}
+rf_model <- randomForest(Match.Length ~ ., data = train_set, ntree = 500)
+
+rf_predictions <- predict(rf_model, test_set)
+
+rf_rmse <- sqrt(mean((rf_predictions - test_set$Match.Length)^2))
+print(paste("Random Forest RMSE:", rf_rmse))
+```
+
+#### **Random Forest Hyperparameters to Tune**
+
+-   `ntree`: Number of trees in the forest.
+
+-   `mtry`: Number of features to consider when looking for the best split.
+
+-   `nodesize`: Minimum size of terminal nodes (affects model complexity).
+
+-   `maxnodes`: Maximum number of terminal nodes.
+
+```{r}
+rf_grid <- expand.grid(
+  mtry = c(2, 3, 4, 5, 6),
+  ntree = c(100, 200, 300, 500),
+  nodesize = c(1, 5, 10),
+  maxnodes = c(10, 20, 30)
+)
+
+# Train the model using 5-fold cross-validation
+set.seed(123)
+rf_train_control <- trainControl(method = "cv", number = 5)
+rf_model_tune <- train(
+  Match.Length ~ .,
+  data = train_set,
+  method = "rf",
+  trControl = rf_train_control,
+  tuneGrid = rf_grid,
+  importance = TRUE
+)
+
+# View the best parameters
+print(rf_model_tune)
+# Predict with the best model
+rf_predictions <- predict(rf_model_tune, test_set)
+rf_rmse <- sqrt(mean((rf_predictions - test_set$Match.Length)^2))
+print(paste("Random Forest RMSE (Tuned):", rf_rmse))
+```
+
+### XGBoost:
+
+```{r}
+dtrain <- xgb.DMatrix(data = as.matrix(train_set %>% select(-Match.Length)), label = train_set$Match.Length)
+dtest <- xgb.DMatrix(data = as.matrix(test_set %>% select(-Match.Length)), label = test_set$Match.Length)
+
+params <- list(
+  objective = "reg:squarederror",
+  eta = 0.1,
+  max_depth = 6,
+  eval_metric = "rmse"
+)
+
+xgb_model <- xgboost(params = params, data = dtrain, nrounds = 100, verbose = 0)
+
+xgb_predictions <- predict(xgb_model, dtest)
+
+xgb_rmse <- sqrt(mean((xgb_predictions - test_set$Match.Length)^2))
+print(paste("XGBoost RMSE:", xgb_rmse))
+
+```
+
+### Predict on Test-Truncated Data:
+
+```{r}
+test_data_prepared <- test_data %>%
+  select(days_between_calls, positive, negative, neutral) %>%
+  mutate_all(as.numeric) %>%
+  replace_na(0)
+
+# Make predictions on Test-Truncated using best model
+test_dmatrix <- xgb.DMatrix(data = as.matrix(test_data_prepared))
+test_predictions <- predict(xgb_model, test_dmatrix)
+
+# Save predictions to CSV
+submission <- data.frame(match_id = test_data$match_id, predicted_match_length = test_predictions)
+```
+
+```{r}
+library(text2vec)
+# Preprocess notes: tokenize, remove stopwords, etc.
+notes_data <- train_set$Match.Support.Contact.Notes  # Assuming you have this column
+corpus <- tolower(notes_data)
+tokens <- word_tokenizer(corpus)
+vectorizer <- vocab_vectorizer(vocabulary = create_vocabulary(itoken(tokens)))
+dtm <- create_dtm(itoken(tokens), vectorizer)
+
+# Create TF-IDF features
+tfidf <- TfIdf$new()
+dtm_tfidf <- tfidf$fit_transform(dtm)
+
+# Combine TF-IDF features with other numeric features
+model_data <- cbind(train_set, as.data.frame(dtm_tfidf))
+
+# Train your model with the updated data
+dtrain <- xgb.DMatrix(data = as.matrix(model_data %>% select(-Match.Length)), label = model_data$Match.Length)
+
+```
+
+# REDO
+
+```{r warning=FALSE}
+train_data_sent <- read_excel(training_file, sheet = 1)
+test_data_sent <- read_excel(test_file, sheet = 1)
+```
+
+Checking column names
+
+```{r}
+colnames(train_data_sent)
+colnames(test_data_sent)
+```
+
+```{r}
+# Columns in train_data_sent but not in test_data_sent
+missing_from_test <- setdiff(colnames(train_data_sent), colnames(test_data_sent))
+
+# Columns in test_data_sent but not in train_data_sent
+missing_from_train <- setdiff(colnames(test_data_sent), colnames(train_data_sent))
+
+# Print results
+cat("Columns in train_data_sent but missing from test_data_sent:\n")
+print(missing_from_test)
+
+cat("\nColumns in test_data_sent but missing from train_data_sent:\n")
+print(missing_from_train)
+```
+
+### Sentiment Analysis Round 2
+
+Function to compute sentiment score from text columns
+
+```{r}
+compute_sentiment <- function(text_column) {
+  if (all(is.na(text_column))) return(rep(NA, length(text_column))) 
+  sentiment_scores <- sentimentr::sentiment(text_column) %>%
+    group_by(element_id) %>%
+    summarize(sentiment = mean(sentiment, na.rm = TRUE))
+  
+  return(sentiment_scores$sentiment)
+}
+```
+
+Compute sentiment scores from `Match Support Contact Notes`
+
+```{r}
+train_data_sent$Support_Notes_Sentiment <- compute_sentiment(train_data_sent$`Match Support Contact Notes`)
+test_data_sent$Support_Notes_Sentiment <- compute_sentiment(test_data_sent$`Match Support Contact Notes`)
+```
+
+#### Compare Rationale for Match & Support Notes
+
+Compute sentiment scores for Rationale for Match
+
+```{r}
+train_data_sent$Rationale_Sentiment <- compute_sentiment(train_data_sent$`Rationale for Match`)
+test_data_sent$Rationale_Sentiment <- compute_sentiment(test_data_sent$`Rationale for Match`)
+```
+
+Compare Rationale and Support Notes Sentiment
+
+```{r}
+train_data_sent <- train_data_sent %>%
+  mutate(Rationale_Match = ifelse((Support_Notes_Sentiment >= 0 & Rationale_Sentiment >= 0) |
+                                  (Support_Notes_Sentiment < 0 & Rationale_Sentiment < 0), 
+                                  "Aligned", "Misaligned"))
+
+test_data_sent <- test_data_sent %>%
+  mutate(Rationale_Match = ifelse((Support_Notes_Sentiment >= 0 & Rationale_Sentiment >= 0) |
+                                  (Support_Notes_Sentiment < 0 & Rationale_Sentiment < 0), 
+                                  "Aligned", "Misaligned"))
+```
+
+Visualize match alignment
+
+```{r}
+ggplot(train_data_sent, aes(x = Rationale_Match, fill = Rationale_Match)) +
+  geom_bar() +
+  theme_minimal() +
+  labs(title = "Alignment of Rationale for Match with Support Notes Sentiment",
+       x = "Sentiment Alignment", y = "Count")
+```
+
+```{r}
+ggplot(train_data_sent, aes(x = Rationale_Match, fill = Rationale_Match)) +
+  geom_bar() +
+  scale_fill_manual(values = c("Aligned" = "#1f77b4", "Misaligned" = "#ff7f0e")) + # Custom colors
+  theme_minimal(base_size = 14) + # Consistent base size for readability
+  labs(
+    title = "Alignment of Rationale for Match with Support Notes Sentiment",
+    x = "Sentiment Alignment", 
+    y = "Count"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1), # Angle x-axis text
+    legend.position = "none" # Remove legend if not needed
+  )
+```
+
+```{r}
+saveRDS(train_data_sent, "train_data_sent.rds")
+saveRDS(test_data_sent, "test_data_sent.rds")
+```
+
+### Demographic Pattern Analysis
+
+Function to check sentiment trends across different groups
+
+```{r}
+co
+```
+
+Analyze sentiment trends for different demographics
+
+```{r}
+age_analysis <- analyze_demographics(train_data_sent, "Big Age")
+gender_analysis <- analyze_demographics(train_data_sent, "Big Gender")
+race_analysis <- analyze_demographics(train_data_sent, "Big Race/Ethnicity")
+education_analysis <- analyze_demographics(train_data_sent, "Big Level of Education")
+```
+
+Plot sentiment by demographics factor
+
+```{r}
+ggplot(age_analysis, aes(x = reorder(`Big Age`, avg_sentiment), y = avg_sentiment, fill = `Big Age`)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Average Sentiment Score by Big's Age",
+       x = "Big's Age", y = "Average Sentiment")
+```
+
+```{r}
+# Function for Sentiment Trend Analysis
+ggplot(age_analysis, aes(
+  x = factor(`Big Age`, levels = sort(unique(`Big Age`))),
+  y = avg_sentiment,
+  fill = `Big Age`
+)) +
+  geom_col() +
+  coord_flip() +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Average Sentiment Score by Big's Age",
+    x = "Big's Age",
+    y = "Average Sentiment",
+    fill = "Age"
+  ) +
+  theme(
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    plot.title = element_text(hjust = 0.5, size = 16),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+
+
+
+```
+
+```{r}
+ggplot(gender_analysis, aes(x = reorder(`Big Gender`, avg_sentiment), y = avg_sentiment, fill = `Big Gender`)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Average Sentiment Score by Big's Gender",
+       x = "Big's Gender", y = "Average Sentiment")
+```
+
+```{r}
+# Example for gender sentiment plot
+ggplot(gender_analysis, aes(x = reorder(`Big Gender`, avg_sentiment), y = avg_sentiment, fill = `Big Gender`)) +
+  geom_col()  + 
+  coord_flip() +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Average Sentiment Score by Big's Gender",
+    x = "Big's Gender", 
+    y = "Average Sentiment"
+  ) +
+  theme(
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    plot.title = element_text(hjust = 0.5, size = 16),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+
+```
+
+```{r}
+ggplot(race_analysis, aes(x = reorder(`Big Race/Ethnicity`, avg_sentiment), y = avg_sentiment, fill = `Big Race/Ethnicity`)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Average Sentiment Score by Big's Race/Ethnicity",
+       x = "Big's Race/Ethnicity", y = "Average Sentiment")
+```
+
+```{r}
+ggplot(race_analysis, aes(x = reorder(`Big Race/Ethnicity`, avg_sentiment), y = avg_sentiment, fill = `Big Race/Ethnicity`)) +
+  geom_col()  + 
+  coord_flip() +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Average Sentiment Score by Big Race/Ethnicity",
+    x = "Big Race/Ethnicity", 
+    y = "Average Sentiment"
+  ) +
+  theme(
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    plot.title = element_text(hjust = 0.5, size = 16),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+```
+
+```{r}
+ggplot(education_analysis, aes(x = reorder(`Big Level of Education`, avg_sentiment), y = avg_sentiment, fill = `Big Level of Education`)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Average Sentiment Score by Big's Level of Education",
+       x = "Big's Level of Education", y = "Average Sentiment")
+```
+
+```{r}
+ggplot(education_analysis, aes(x = reorder(`Big Level of Education`, avg_sentiment), y = avg_sentiment, fill = `Big Level of Education`)) +
+  geom_col()  + 
+  coord_flip() +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Average Sentiment Score by Big Level of Education",
+    x = "Big Level of Education", 
+    y = "Average Sentiment"
+  ) +
+  theme(
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    plot.title = element_text(hjust = 0.5, size = 16),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+```
+
+### Alternative Match Evaluation
+
+Checking whether demographic alignment affects sentiment
+
+```{r}
+train_data_sent <- train_data_sent %>%
+  mutate(Same_Gender_Match = ifelse(`Big Gender` == `Little Gender`, "Same Gender", "Different Gender"),
+         Same_Race_Match = ifelse(`Big Race/Ethnicity` == `Little Participant: Race/Ethnicity`, "Same Race", "Different Race"))
+```
+
+Sentiment analysis based on match characteristics
+
+```{r}
+gender_match_analysis <- train_data_sent %>%
+  group_by(Same_Gender_Match) %>%
+  summarize(avg_sentiment = mean(Support_Notes_Sentiment, na.rm = TRUE))
+
+race_match_analysis <- train_data_sent %>%
+  group_by(Same_Race_Match) %>%
+  summarize(avg_sentiment = mean(Support_Notes_Sentiment, na.rm = TRUE))
+```
+
+Visualize gender-based matching impact
+
+```{r}
+ggplot(gender_match_analysis, aes(x = Same_Gender_Match, y = avg_sentiment, fill = Same_Gender_Match)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Impact of Gender Matching on Sentiment",
+       x = "Match Type", y = "Average Sentiment")
+```
+
+```{r}
+# Improved gender-based sentiment match plot
+ggplot(gender_match_analysis, aes(x = Same_Gender_Match, y = avg_sentiment, fill = Same_Gender_Match)) +
+  geom_col() +
+  scale_fill_manual(values = c("Same Gender" = "#2ca02c", "Different Gender" = "#d62728")) + # Custom colors
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Impact of Gender Matching on Sentiment",
+    x = "Match Type", 
+    y = "Average Sentiment"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1), # Angle x-axis text for readability
+    plot.title = element_text(hjust = 0.5, size = 16),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+
+```
+
+Saving Data for future use
+
+```{r}
+write.csv(train_data, "data/Processed_Train_Data.csv", row.names = FALSE)
+write.csv(test_data, "data/Processed_Test_Data.csv", row.names = FALSE)
+```
+
+### Correlations
+
+```{r}
+cor(train_data_sent$Support_Notes_Sentiment, train_data_sent$`Match Length`, use = "complete.obs")
+```
+
+```{r}
+table(train_data_sent$Rationale_Match, train_data_sent$`Closure Reason`)
+```
+
+```{r}
+table(train_data_sent$Same_Gender_Match, train_data_sent$Rationale_Match)
+table(train_data_sent$Same_Race_Match, train_data_sent$Rationale_Match)
+```
+
+model
+
+```{r}
+model <- glm(`Closure Reason` ~ Support_Notes_Sentiment + Rationale_Match + Same_Gender_Match + Same_Race_Match, 
+             data = train_data_sent, family = binomial)
+
+summary(model)
+```
+
+```{r}
+train_data$Match_Success <- ifelse(
+  train_data$`Stage` == "Active" | 
+  train_data$`Match Length` >= 24 |  
+  grepl("Aged Out|Successful Match Closure", train_data$`Closure Reason`, ignore.case = TRUE), 
+  1, 0
+)
+
+table(train_data$Match_Success) 
+
+```
+
+```{r}
+model <- glm(Match_Success ~ Support_Notes_Sentiment + Rationale_Match + Same_Gender_Match + Same_Race_Match, 
+             data = train_data_sent, family = binomial)
+summary(model)
+
+```
+
+```{r}
+cor(train_data_sent$Match_Success, train_data_sent$`Match Length`, use = "complete.obs")
+
+```
+
+```{r}
+ggplot(train_data_sent, aes(x = factor(Match_Success), fill = factor(Same_Gender_Match))) +
+    geom_bar(position = "fill") +
+    theme_minimal() +
+    labs(title = "Match Success by Gender", x = "Match Success", y = "Proportion")
+
+```
+
+```{r}
+sapply(train_data_sent[, c("Rationale_Match", "Same_Gender_Match", "Same_Race_Match")], function(x) length(unique(x)))
+
+```
+
+```{r}
+train_data_sent$Rationale_Match <- as.factor(train_data_sent$Rationale_Match)
+train_data_sent$Same_Gender_Match <- as.factor(train_data_sent$Same_Gender_Match)
+train_data_sent$Same_Race_Match <- as.factor(train_data_sent$Same_Race_Match)
+
+```
+
+```{r}
+table(train_data_sent$Same_Gender_Match)
+unique(train_data_sent$Same_Gender_Match)
+
+```
+
+Convert `Same_Gender_Match` to a Proper Factor
+
+```{r}
+train_data_sent$Same_Gender_Match <- factor(train_data_sent$Same_Gender_Match, 
+                                       levels = c("Different Gender", "Same Gender"))
+```
+
+```{r}
+# Impute NA with "Same Gender" (since it’s the most frequent)
+train_data_sent$Same_Gender_Match[is.na(train_data_sent$Same_Gender_Match)] <- "Same Gender"
+train_data_sent$Same_Gender_Match <- as.factor(train_data_sent$Same_Gender_Match)
+
+```
+
+```{r}
+model <- glm(Match_Success ~ Support_Notes_Sentiment + Rationale_Match + Same_Gender_Match + Same_Race_Match, 
+             data = train_data_sent, family = binomial)
+
+summary(model)
+```
+
+```{r}
+sapply(train_data_sent[, c("Rationale_Match", "Same_Gender_Match", "Same_Race_Match")], function(x) unique(x))
+
+```
+
+```{r}
+table(train_data_sent$Rationale_Match)
+table(train_data_sent$Same_Gender_Match)
+table(train_data_sent$Same_Race_Match)
+
+```
+
+Investigating `Same_Race_Match`
+
+```{r}
+sum(is.na(train_data_sent$Same_Race_Match))
+
+```
+
+```{r}
+table(is.na(train_data_sent$Same_Race_Match), train_data_sent$Match_Success)
+
+```
+
+```{r}
+model <- lm(Match_Length ~ Support_Notes_Sentiment + Rationale_Match + Same_Gender_Match, 
+            data = train_data_sent)
+summary(model)
+
+```
+
+```{r warning=FALSE}
+match_length_train_data <- read_excel(training_file, sheet = 1)
+match_length_test_data <- read_excel(test_file, sheet = 1)
+```
+
+```{r}
+summary(match_length_train_data$`Match Length`)  # Check min, max, median, mean
+hist(match_length_train_data$`Match Length`, breaks=30, main="Distribution of Match Length", xlab="Months")
+sum(is.na(match_length_train_data$`Match Length`))  # Count NAs
+
+```
+
+```{r}
+# Select some potential predictors
+potential_predictors <- c(
+  "Big Gender", "Little Gender", "Big Race/Ethnicity", "Little Participant: Race/Ethnicity",
+  "Rationale for Match", "Big Car Access", "Big Days Interview to Match", 
+  "Big Level of Education", "Program", "Program Type"
+)
+
+# Check structure and unique values
+sapply(match_length_train_data[, potential_predictors], function(x) {
+  c(Num_NA = sum(is.na(x)), Unique_Values = length(unique(x)))
+})
+
+```
+
+```{r}
+# Basic linear model with selected predictors
+lm_model <- lm(`Match Length` ~ `Big Gender` + `Little Gender` + `Program Type` + 
+               `Big Race/Ethnicity` + `Little Participant: Race/Ethnicity`, 
+               data = match_length_train_data)
+
+# Summary of the model
+summary(lm_model)
+
+```
+
+```{r}
+coef_df <- data.frame(
+  Feature = names(coef(lm_model)),
+  Coefficient = coef(lm_model)
+)
+
+ggplot(coef_df, aes(x = reorder(Feature, Coefficient), y = Coefficient)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  coord_flip() +
+  labs(title = "Linear Model Coefficients", x = "Feature", y = "Coefficient")
+
+```
+
+```{r}
+# Calculate residuals
+residuals <- residuals(lm_model)
+
+# Create residual plot
+ggplot(data.frame(Fitted = fitted(lm_model), Residuals = residuals), aes(x = Fitted, y = Residuals)) +
+  geom_point(color = "steelblue") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "Residual Plot", x = "Fitted Values", y = "Residuals")
+
+```
+
+```{r}
+# Assuming you have a dataset with actual values corresponding to your model
+# Replace 'actual_values' with the actual response variable from your dataset
+model_levels <- lm_model$xlevels$`Little Participant: Race/Ethnicity`
+
+# Filter the train data to only rows with factor levels used in the model
+match_length_train_data_fixed <- match_length_train_data[
+  match_length_train_data$`Little Participant: Race/Ethnicity` %in% model_levels, 
+]
+
+# Now predict using the cleaned dataset
+train_predictions <- predict(lm_model, newdata = match_length_train_data_fixed)
+
+
+# Add the actual values from training data
+actual_train_values <- match_length_train_data_fixed$`Match Length`
+
+# Now the plot will work
+ggplot(data.frame(Actual = actual_train_values, Predicted = train_predictions), aes(x = Actual, y = Predicted)) +
+  geom_point(color = "darkgreen", alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
+  labs(
+    title = "Predicted vs Actual (Training Data)",
+    x = "Actual Match Length",
+    y = "Predicted Match Length"
+  ) +
+  theme_minimal()
+
+```
+
+```{r}
+# Make sure test data uses same levels
+match_length_test_data_fixed <- match_length_test_data[
+  match_length_test_data$`Little Participant: Race/Ethnicity` %in% training_levels, 
+]
+
+# Predict on test data
+test_predictions <- predict(lm_model, newdata = match_length_test_data_fixed)
+
+# Get actuals from filtered test data
+actual_test_values <- match_length_test_data_fixed$`Match Length`
+
+# Calculate residuals
+residuals_test <- actual_test_values - test_predictions
+
+# RMSE and R-squared
+rmse_test <- rmse(actual_test_values, test_predictions)
+sse_test <- sum(residuals_test^2)
+sst_test <- sum((actual_test_values - mean(actual_test_values))^2)
+r_squared_test <- 1 - sse_test/sst_test
+
+# Print results
+cat("Test RMSE:", round(rmse_test, 2), "\n")
+cat("Test R²:", round(r_squared_test, 4), "\n")
+```
+
+```{r}
+# Store levels from training data
+race_levels <- levels(match_length_train_data$`Little Participant: Race/Ethnicity`)
+gender_levels <- levels(match_length_train_data$`Little Gender`)
+
+# Keep only rows where both Race and Gender levels are in the training set
+match_length_test_data_fixed <- match_length_test_data[
+  match_length_test_data$`Little Participant: Race/Ethnicity` %in% race_levels &
+  match_length_test_data$`Little Gender` %in% gender_levels,
+]
+
+# Predict on filtered test data
+test_predictions <- predict(lm_model, newdata = match_length_test_data_fixed)
+
+# Actual values
+actual_test_values <- match_length_test_data_fixed$`Match Length`
+
+# Residuals
+residuals_test <- actual_test_values - test_predictions
+
+# RMSE and R²
+library(Metrics)
+rmse_test <- rmse(actual_test_values, test_predictions)
+sse_test <- sum(residuals_test^2)
+sst_test <- sum((actual_test_values - mean(actual_test_values))^2)
+r_squared_test <- 1 - sse_test / sst_test
+
+# Output metrics
+cat("Test RMSE:", round(rmse_test, 2), "\n")
+cat("Test R²:", round(r_squared_test, 4), "\n")
+
+```
+
+```{r}
+match_length_test_data_fixed <- match_length_test_data[
+  match_length_test_data$`Little Participant: Race/Ethnicity` %in% levels(match_length_train_data$`Little Participant: Race/Ethnicity`) &
+  match_length_test_data$`Little Gender` %in% levels(match_length_train_data$`Little Gender`),
+]
+
+# Predict on cleaned test data
+test_predictions <- predict(lm_model, newdata = match_length_test_data_fixed)
+
+output_df <- match_length_test_data_fixed
+output_df$Predicted_Match_Length <- test_predictions
+
+# Export to CSV
+write.csv(data.frame(Predicted_Match_Length = test_predictions), "match_length_predictions.csv", row.names = FALSE)
+
+```
+
+```{r}
+glimpse(match_length_train_data)
+
+# Or view the first few rows
+head(match_length_train_data)
+```
+
+```{r}
+# Check for missing values in the training data
+sum(is.na(match_length_train_data))
+
+```
+
+```{r}
+target_variable <- "Match Length"
+
+# All columns except the target
+features <- setdiff(names(match_length_train_data), target_variable)
+```
+
+```{r}
+set.seed(1501) # Set seed for reproducibility
+train_index <- createDataPartition(match_length_train_data[[target_variable]], p = 0.8, list = FALSE)
+train_data <- match_length_train_data[train_index, ]
+test_data <- match_length_train_data[-train_index, ]
+```
+
+```{r}
+# Preprocess the data
+preProc <- preProcess(train_data[, features], method = c("center", "scale"))
+
+# Apply preprocessing to the training and test data
+train_data_processed <- predict(preProc, train_data[, features])
+test_data_processed <- predict(preProc, test_data[, features])
+
+```
+
+```{r}
+formula <- as.formula(paste("`", target_variable, "` ~ ", 
+                            paste(sapply(features, function(x) paste("`", x, "`", sep = "")), collapse = " + "), sep = ""))
+
+# Fit the linear model
+model <- lm(formula, data = match_length_train_data)
+# View model summary
+summary(model)
+```
+
+```{r}
+features_cleaned <- features[sapply(match_length_train_data[, features], function(x) length(unique(x)) > 1)]
+
+# Optionally, remove features with very few unique values (e.g., less than 5 unique values)
+features_cleaned <- features_cleaned[sapply(match_length_train_data[, features_cleaned], function(x) length(unique(x)) > 4)]
+
+# Ensure that categorical variables are treated as factors
+match_length_train_data[features_cleaned] <- lapply(match_length_train_data[features_cleaned], function(x) {
+  if (is.character(x)) {
+    factor(x)
+  } else {
+    x
+  }
+})
+
+# Create the formula again with the cleaned features
+formula <- as.formula(paste("`", target_variable, "` ~ ", 
+                            paste(sapply(features_cleaned, function(x) paste("`", x, "`", sep = "")), collapse = " + "), sep = ""))
+
+# Fit the model
+model <- lm(formula, data = match_length_train_data)
+```
